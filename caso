@@ -1,0 +1,62 @@
+Supongamos la siguiente configuración simplificada:
+
+El problema ahora es decidir cuánto genera cada planta, respetando tanto la suma de
+generación = demanda, como el límite de cada línea de transmisión.
+Planteamiento matemático
+Función objetivo (igual):
+
+min C = 15P1 + 20P2 + 50P3
+
+Restricciones:
+
+Demanda: P1 + P2 + P3 = 150
+Límites de generación:
+20 ≤ P1 ≤ 100
+10 ≤ P2 ≤ 60
+0 ≤ P3 ≤ 50
+Límites de transmisión:
+P1 ≤ 90P2 ≤ 60P3 ≤ 50
+
+Nótese que, en este ejemplo simple, los límites de generación y transmisión coinciden para G2
+y G3, pero para G1 la transmisión es menor que la capacidad máxima.
+Código Python con límites de transmisión
+Planta G1 (nodo A)
+Planta G2 (nodo B)
+Planta G3 (nodo C)
+Demanda: Nodo D (toda la demanda de 150 MW está aquí)
+Líneas de transmisión:
+A → D (límite 90 MW)
+B → D (límite 60 MW)
+C → D (límite 50 MW)
+
+from scipy.optimize import linprog
+# Función objetivo: minimizar costo total
+c = [15, 20, 50] # $/MW
+# Restricción de demanda
+A_eq = [[1, 1, 1]] # P1 + P2 + P3 = 150
+b_eq = [150]
+
+¿Qué está haciendo el código?
+# Restricciones de transmisión adicionales (P1<=90; P2<=60; P3<=50)
+# Estas ya están reflejadas en los bounds, pero si fueran distintas
+añadiríamos
+A_ub = [
+[1, 0, 0], # P1 <= 90
+[0, 1, 0], # P2 <= 60
+[0, 0, 1], # P3 <= 50
+]
+b_ub = [90, 60, 50]
+# Límite inferior y superior de cada generador (considerando los más
+restrictivos)
+bounds = [(20, 90), (10, 60), (0, 50)]
+# Resolver el problema usando linprog
+result = linprog(c, A_ub=A_ub, b_ub=b_ub, A_eq=A_eq, b_eq=b_eq,
+bounds=bounds, method='highs')
+if result.success:
+print("Potencia óptima por generador (MW):")
+print(f"G1: {result.x[0]:.2f}")
+print(f"G2: {result.x[1]:.2f}")
+print(f"G3: {result.x[2]:.2f}")
+print(f"\nCosto total mínimo: ${result.fun:.2f}")
+else:
+print("No hay solución óptima.")
