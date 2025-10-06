@@ -1,62 +1,182 @@
-Supongamos la siguiente configuración simplificada:
+### Despacho Económico Simulado para el Mercado Colombiano - Julio 2025
 
-El problema ahora es decidir cuánto genera cada planta, respetando tanto la suma de
-generación = demanda, como el límite de cada línea de transmisión.
-Planteamiento matemático
-Función objetivo (igual):
+Este ejemplo modela un despacho económico ajustado para reflejar las condiciones del mercado eléctrico en Colombia, utilizando datos públicos correspondientes a **julio de 2025**.
 
-min C = 15P1 + 20P2 + 50P3
+#### 1. Contexto y Datos de Mercado
 
-Restricciones:
+El modelo se basa en los siguientes datos:
+*   **Demanda de Energía:** La demanda nacional en julio de 2025 fue de **7,294.30 GWh**. Para nuestro modelo de despacho horario, calculamos la demanda promedio:
+    *   `Demanda Horaria = (7,294.30 GWh * 1,000 MWh/GWh) / (31 días * 24 horas/día) = 9,804 MW`
+*   **Precio de Bolsa Promedio:** El precio promedio ponderado de bolsa para este mes fue de **138.36 COP/kWh**. Nuestro modelo buscará replicar este precio.
+*   **Precio de Escasez:** Se utiliza el Precio de Escasez Superior (PES) vigente, que es de **865.22 COP/kWh**.
 
-Demanda: P1 + P2 + P3 = 150
-Límites de generación:
-20 ≤ P1 ≤ 100
-10 ≤ P2 ≤ 60
-0 ≤ P3 ≤ 50
-Límites de transmisión:
-P1 ≤ 90P2 ≤ 60P3 ≤ 50
+#### 2. Configuración de Generadores y Escenario de Despacho
 
-Nótese que, en este ejemplo simple, los límites de generación y transmisión coinciden para G2
-y G3, pero para G1 la transmisión es menor que la capacidad máxima.
-Código Python con límites de transmisión
-Planta G1 (nodo A)
-Planta G2 (nodo B)
-Planta G3 (nodo C)
-Demanda: Nodo D (toda la demanda de 150 MW está aquí)
-Líneas de transmisión:
-A → D (límite 90 MW)
-B → D (límite 60 MW)
-C → D (límite 50 MW)
+Se define un portafolio de generación representativo de la capacidad instalada en Colombia. Para que el precio de bolsa sea de 138.36 COP/kWh (fijado por una planta térmica), debemos simular un escenario donde la generación hidroeléctrica más barata no es suficiente para cubrir toda la demanda, una situación común en épocas de aportes hídricos bajos.
 
+*   **Escenario:** Disponibilidad hídrica reducida.
+
+**Generadores y sus características para el despacho:**
+
+*   **G1 (Renovables - Solar/Eólica):**
+    *   Costo Variable: 15 COP/kWh (muy bajo).
+    *   Capacidad Disponible: 1,000 MW.
+*   **G2 (Hidroeléctrica):**
+    *   Costo de Oportunidad: 90 COP/kWh.
+    *   Capacidad Disponible (en este escenario): **7,804 MW**.
+*   **G3 (Térmica - Gas):**
+    *   Costo Variable: **138.36 COP/kWh** (será la planta marginal).
+    *   Capacidad Disponible: 3,200 MW.
+*   **G4 (Térmica - Carbón):**
+    *   Costo Variable: 250 COP/kWh.
+    *   Capacidad Disponible: 2,000 MW.
+*   **G5 (Déficit):**
+    *   Costo (Precio de Escasez): **865.22 COP/kWh**.
+    *   Capacidad: Ilimitada.
+
+**Orden de Mérito:** Renovables -> Hidroeléctrica -> Térmica-Gas -> Térmica-Carbón.
+
+#### 3. Planteamiento Matemático
+
+**Función Objetivo (Minimizar Costo Total):**
+`min C = 15*P_renovable + 90*P_hidro + 138.36*P_gas + 250*P_carbon + 865.22*P_deficit`
+
+**Restricciones:**
+
+1.  **Cubrimiento de la Demanda:**
+    `P_renovable + P_hidro + P_gas + P_carbon + P_deficit = 9,804`
+
+2.  **Límites de Generación (Capacidad Disponible):**
+    *   `0 <= P_renovable <= 1,000`
+    *   `0 <= P_hidro <= 7,804`
+    *   `0 <= P_gas <= 3,200`
+    *   `0 <= P_carbon <= 2,000`
+    *   `P_deficit >= 0`
+
+#### 4. Código Python para la Solución
+
+```python
 from scipy.optimize import linprog
-# Función objetivo: minimizar costo total
-c = [15, 20, 50] # $/MW
-# Restricción de demanda
-A_eq = [[1, 1, 1]] # P1 + P2 + P3 = 150
-b_eq = [150]
+import matplotlib.pyplot as plt
+import numpy as np
 
-¿Qué está haciendo el código?
-# Restricciones de transmisión adicionales (P1<=90; P2<=60; P3<=50)
-# Estas ya están reflejadas en los bounds, pero si fueran distintas
-añadiríamos
-A_ub = [
-[1, 0, 0], # P1 <= 90
-[0, 1, 0], # P2 <= 60
-[0, 0, 1], # P3 <= 50
-]
-b_ub = [90, 60, 50]
-# Límite inferior y superior de cada generador (considerando los más
-restrictivos)
-bounds = [(20, 90), (10, 60), (0, 50)]
-# Resolver el problema usando linprog
-result = linprog(c, A_ub=A_ub, b_ub=b_ub, A_eq=A_eq, b_eq=b_eq,
-bounds=bounds, method='highs')
-if result.success:
-print("Potencia óptima por generador (MW):")
-print(f"G1: {result.x[0]:.2f}")
-print(f"G2: {result.x[1]:.2f}")
-print(f"G3: {result.x[2]:.2f}")
-print(f"\nCosto total mínimo: ${result.fun:.2f}")
+# --- 1. Definición del Problema (Datos de Julio 2025) ---
+
+plantas = ["Renovables", "Hidroeléctrica", "Térmica-Gas", "Térmica-Carbón", "Déficit"]
+demanda_total = 9804  # MW (Demanda horaria promedio)
+costos = [15, 90, 138.36, 250, 865.22]
+limites = [(0, 1000), (0, 7804), (0, 3200), (0, 2000), (0, None)]
+
+# --- 2. Formulación para linprog ---
+
+c = costos
+A_eq = [[1, 1, 1, 1, 1]]
+b_eq = [demanda_total]
+bounds = limites
+
+# --- 3. Resolución del Problema ---
+
+resultado = linprog(c=c, A_eq=A_eq, b_eq=b_eq, bounds=bounds, method='highs')
+
+# --- 4. Presentación de Resultados ---
+
+if resultado.success:
+    print("--- DESPACHO ECONÓMICO SIMULADO (Julio 2025) ---")
+    print(f"Demanda a cubrir: {demanda_total} MW\n")
+
+    potencias_despachadas = resultado.x
+    plantas_despachadas_nombres = []
+    potencias_despachadas_valores = []
+
+    print("Potencia despachada por generador (MW):")
+    for i, planta in enumerate(plantas):
+        potencia = potencias_despachadas[i]
+        if potencia > 0.01:
+            print(f"- {planta}: {potencia:,.2f} MW")
+            plantas_despachadas_nombres.append(planta)
+            potencias_despachadas_valores.append(potencia)
+
+    print(f"\nCosto total del despacho: ${resultado.fun:,.2f} COP")
+
+    precio_marginal = 0
+    for i in range(len(plantas) - 1, -1, -1):
+        if potencias_despachadas[i] > 0.01:
+            precio_marginal = costos[i]
+            break
+
+    print(f"Precio Marginal de la Energía (Precio de Bolsa): {precio_marginal:,.2f} COP/kWh")
+
+    if potencias_despachadas[-1] > 0:
+        print("\n¡ALERTA! Se requirió despacho por déficit. El precio es el de escasez.")
+
+    # --- 5. Generación de Gráficas ---
+
+    # Gráfico 1: Barras de Generación Despachada
+    plt.figure(figsize=(10, 6))
+    colores = ['#2ca02c', '#1f77b4', '#ff7f0e', '#8c564b']
+    plt.bar(plantas_despachadas_nombres, potencias_despachadas_valores, color=colores)
+    plt.title('Generación Despachada por Tipo de Planta')
+    plt.ylabel('Potencia Despachada (MW)')
+    plt.xlabel('Tipo de Planta')
+    plt.grid(axis='y', linestyle='--', alpha=0.7)
+    plt.savefig('despacho_generacion.png')
+    print("\nGráfico de despacho guardado como 'despacho_generacion.png'")
+
+    # Gráfico 2: Curva de Oferta Agregada
+    oferta_ordenada = sorted([item for item in zip(costos, limites, plantas) if item[1][1] is not None])
+
+    x_coords = []
+    y_coords = []
+    capacidad_acumulada = 0
+
+    for costo, limite, _ in oferta_ordenada:
+        # Punto de inicio del escalón horizontal
+        x_coords.append(capacidad_acumulada)
+        y_coords.append(costo)
+
+        # Punto final del escalón horizontal
+        capacidad_acumulada += limite[1]
+        x_coords.append(capacidad_acumulada)
+        y_coords.append(costo)
+
+    plt.figure(figsize=(12, 7))
+    plt.plot(x_coords, y_coords, label='Curva de Oferta Agregada', color='blue', linewidth=2)
+
+    # Líneas de demanda y precio
+    plt.axvline(x=demanda_total, color='r', linestyle='--', linewidth=2, label=f'Demanda ({demanda_total:,.0f} MW)')
+    plt.axhline(y=precio_marginal, color='g', linestyle='--', linewidth=2, label=f'Precio Marginal ({precio_marginal:,.2f} COP/kWh)')
+
+    plt.title('Curva de Oferta Agregada y Determinación del Precio de Bolsa')
+    plt.xlabel('Capacidad Acumulada (MW)')
+    plt.ylabel('Costo Variable (COP/kWh)')
+    plt.legend()
+    plt.grid(True, which='both', linestyle='--', linewidth=0.5)
+    plt.ylim(bottom=0)
+    plt.xlim(left=0)
+    plt.savefig('curva_oferta_agregada.png')
+    print("Gráfico de curva de oferta guardado como 'curva_oferta_agregada.png'")
+
 else:
-print("No hay solución óptima.")
+    print("No se encontró una solución óptima.")
+    print(f"Error: {resultado.message}")
+```
+
+#### 5. Interpretación de los Resultados Esperados
+
+Al ejecutar el código con este escenario:
+1.  Se despachan los **1,000 MW** de Renovables (los más baratos).
+2.  Se despacha toda la hidroelectricidad disponible: **7,804 MW**.
+3.  Para cubrir los **9,804 MW** de demanda, el sistema necesita 1,000 MW adicionales (`9804 - 1000 - 7804 = 1000`).
+4.  Estos 1,000 MW son cubiertos por la siguiente planta en el orden de mérito: la **Térmica-Gas**.
+5.  Como la Térmica-Gas fue la última planta necesaria, su costo de **138.36 COP/kWh** fija el precio para todo el mercado en esa hora.
+
+#### 6. Visualización Gráfica de los Resultados
+
+El script ahora genera dos archivos de imagen para visualizar los resultados del despacho:
+
+*   **`despacho_generacion.png`**: Este gráfico de barras muestra la cantidad de potencia (en MW) que cada planta despachó. Es una forma clara y directa de ver qué generadores contribuyeron a satisfacer la demanda y en qué proporción.
+
+*   **`curva_oferta_agregada.png`**: Esta es la visualización más importante para entender la economía del sistema.
+    *   La **línea azul en escalera** representa la oferta total de energía, ordenada de más barata a más cara (orden de mérito). Cada escalón horizontal es un generador, donde su altura es el costo y su anchura es la capacidad.
+    *   La **línea roja vertical** representa la demanda total del sistema.
+    *   La **línea verde horizontal** muestra el precio marginal. Este precio se determina en el punto donde la línea de demanda cruza la curva de oferta. Todos los generadores a la izquierda de este punto son despachados y reciben este precio.
