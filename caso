@@ -1,62 +1,134 @@
-Supongamos la siguiente configuración simplificada:
+### Problema de Despacho Económico para el Mercado Eléctrico Colombiano
 
-El problema ahora es decidir cuánto genera cada planta, respetando tanto la suma de
-generación = demanda, como el límite de cada línea de transmisión.
-Planteamiento matemático
-Función objetivo (igual):
+Este ejemplo modela un despacho económico simplificado, ajustado para reflejar las características del mercado eléctrico en Colombia. Se incluyen diferentes tecnologías de generación, el concepto de **orden de mérito** y el **precio de escasez**.
 
-min C = 15P1 + 20P2 + 50P3
+#### 1. Configuración de Generadores y Demanda
 
-Restricciones:
+Se considera un sistema con una demanda total de **800 MW** y los siguientes generadores, cada uno con su costo variable y capacidad:
 
-Demanda: P1 + P2 + P3 = 150
-Límites de generación:
-20 ≤ P1 ≤ 100
-10 ≤ P2 ≤ 60
-0 ≤ P3 ≤ 50
-Límites de transmisión:
-P1 ≤ 90P2 ≤ 60P3 ≤ 50
+*   **G1 (Solar):**
+    *   Costo: $10/MWh (prácticamente cero, un valor bajo para estabilidad numérica).
+    *   Capacidad Máxima: 150 MW (limitada por la irradiación solar disponible).
+*   **G2 (Hidroeléctrica):**
+    *   Costo: $60/MWh (costo de oportunidad del agua).
+    *   Capacidad Máxima: 500 MW.
+*   **G3 (Térmica - Gas):**
+    *   Costo: $150/MWh.
+    *   Capacidad Máxima: 300 MW.
+*   **G4 (Térmica - Carbón):**
+    *   Costo: $250/MWh.
+    *   Capacidad Máxima: 200 MW.
+*   **G5 (Déficit / Escasez):**
+    *   Costo: **$950/MWh** (Precio de Escasez).
+    *   Capacidad: Ilimitada (virtual).
 
-Nótese que, en este ejemplo simple, los límites de generación y transmisión coinciden para G2
-y G3, pero para G1 la transmisión es menor que la capacidad máxima.
-Código Python con límites de transmisión
-Planta G1 (nodo A)
-Planta G2 (nodo B)
-Planta G3 (nodo C)
-Demanda: Nodo D (toda la demanda de 150 MW está aquí)
-Líneas de transmisión:
-A → D (límite 90 MW)
-B → D (límite 60 MW)
-C → D (límite 50 MW)
+**Orden de Mérito:** El despacho se realiza priorizando los generadores más económicos. En este caso, el orden es: Solar -> Hidroeléctrica -> Gas -> Carbón.
 
+**Precio de Escasez:** Es un precio máximo regulado que se activa cuando la oferta de los generadores no es suficiente para cubrir la demanda. Se modela como un generador "virtual" de costo muy alto. Si este generador se "despacha", el precio de la energía en el sistema será el precio de escasez.
+
+#### 2. Planteamiento Matemático
+
+**Función Objetivo (Minimizar Costo Total):**
+`min C = 10*P_solar + 60*P_hidro + 150*P_gas + 250*P_carbon + 950*P_deficit`
+
+**Restricciones:**
+
+1.  **Cubrimiento de la Demanda:**
+    `P_solar + P_hidro + P_gas + P_carbon + P_deficit = 800`
+
+2.  **Límites de Generación (Capacidad):**
+    *   `0 <= P_solar <= 150`
+    *   `0 <= P_hidro <= 500`
+    *   `0 <= P_gas <= 300`
+    *   `0 <= P_carbon <= 200`
+    *   `P_deficit >= 0`
+
+#### 3. Código Python para la Solución
+
+El siguiente código utiliza `scipy.optimize.linprog` para resolver el problema de despacho.
+
+```python
 from scipy.optimize import linprog
-# Función objetivo: minimizar costo total
-c = [15, 20, 50] # $/MW
-# Restricción de demanda
-A_eq = [[1, 1, 1]] # P1 + P2 + P3 = 150
-b_eq = [150]
 
-¿Qué está haciendo el código?
-# Restricciones de transmisión adicionales (P1<=90; P2<=60; P3<=50)
-# Estas ya están reflejadas en los bounds, pero si fueran distintas
-añadiríamos
-A_ub = [
-[1, 0, 0], # P1 <= 90
-[0, 1, 0], # P2 <= 60
-[0, 0, 1], # P3 <= 50
+# --- Definición del Problema ---
+
+# Nombres de los generadores para una fácil interpretación
+plantas = ["Solar", "Hidroeléctrica", "Térmica-Gas", "Térmica-Carbón", "Déficit"]
+demanda_total = 800  # MW
+
+# Costos de generación ($/MWh) - Esto define el ORDEN DE MÉRITO
+costos = [10, 60, 150, 250, 950]  # El último es el Precio de Escasez
+
+# Límites de generación (mín, máx) en MW
+# (P_min, P_max) para cada planta
+limites = [
+    (0, 150),  # Solar
+    (0, 500),  # Hidroeléctrica
+    (0, 300),  # Térmica-Gas
+    (0, 200),  # Térmica-Carbón
+    (0, None)  # Déficit (sin límite superior)
 ]
-b_ub = [90, 60, 50]
-# Límite inferior y superior de cada generador (considerando los más
-restrictivos)
-bounds = [(20, 90), (10, 60), (0, 50)]
-# Resolver el problema usando linprog
-result = linprog(c, A_ub=A_ub, b_ub=b_ub, A_eq=A_eq, b_eq=b_eq,
-bounds=bounds, method='highs')
-if result.success:
-print("Potencia óptima por generador (MW):")
-print(f"G1: {result.x[0]:.2f}")
-print(f"G2: {result.x[1]:.2f}")
-print(f"G3: {result.x[2]:.2f}")
-print(f"\nCosto total mínimo: ${result.fun:.2f}")
+
+# --- Formulación para linprog ---
+
+# Coeficientes de la función objetivo (lo que queremos minimizar)
+c = costos
+
+# Matriz de restricciones de igualdad (A_eq * x = b_eq)
+# P_solar + P_hidro + P_gas + P_carbon + P_deficit = demanda
+A_eq = [[1, 1, 1, 1, 1]]
+b_eq = [demanda_total]
+
+# Límites (bounds) para cada variable de decisión (cada generador)
+bounds = limites
+
+# --- Resolución del Problema ---
+
+# Resolver el problema de programación lineal
+resultado = linprog(c=c, A_eq=A_eq, b_eq=b_eq, bounds=bounds, method='highs')
+
+# --- Presentación de Resultados ---
+
+if resultado.success:
+    print("--- DESPACHO ECONÓMICO ÓPTIMO ---")
+    print(f"Demanda Total: {demanda_total} MW\n")
+
+    # Imprimir la potencia despachada por cada generador
+    print("Potencia despachada por generador (MW):")
+    for i, planta in enumerate(plantas):
+        potencia_despachada = resultado.x[i]
+        if potencia_despachada > 0.01:  # Mostrar solo si se despacha
+            print(f"- {planta}: {potencia_despachada:.2f} MW")
+
+    print(f"\nCosto total del despacho: ${resultado.fun:,.2f}")
+
+    # El precio marginal (precio spot) es el valor dual de la restricción de demanda
+    # Se necesita un pequeño ajuste para obtenerlo de `linprog`
+    # En este caso, el precio lo fija el último generador despachado
+    precio_marginal = 0
+    for i in range(len(plantas) -1, -1, -1):
+        if resultado.x[i] > 0.01:
+            precio_marginal = costos[i]
+            break
+
+    print(f"Precio Marginal de la Energía (Precio Spot): ${precio_marginal:.2f}/MWh")
+
+    if resultado.x[-1] > 0:
+        print("\n¡ALERTA! Se requirió despacho por déficit. El precio es el de escasez.")
+
 else:
-print("No hay solución óptima.")
+    print("No se encontró una solución óptima para el despacho.")
+    print(f"Mensaje de error: {resultado.message}")
+
+```
+
+#### 4. Interpretación de los Resultados
+
+Al ejecutar el código, la salida esperada será:
+
+*   **Solar:** Despachará su máximo (150 MW) porque es la más barata.
+*   **Hidroeléctrica:** Despachará su máximo (500 MW).
+*   **Térmica-Gas:** Despachará los 150 MW restantes para cubrir la demanda (150 + 500 + 150 = 800 MW).
+*   **Térmica-Carbón y Déficit:** No serán despachadas porque la demanda se cubre con opciones más económicas.
+
+El **Precio Marginal de la Energía** (también conocido como precio spot o de bolsa) será fijado por el último generador que fue necesario para cubrir la demanda. En este caso, la planta de **Gas**, por lo que el precio será de **$150/MWh**. Todos los generadores que participen en el despacho recibirán este precio por la energía que vendan.
