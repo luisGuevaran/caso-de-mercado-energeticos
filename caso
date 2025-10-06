@@ -57,24 +57,15 @@ Se define un portafolio de generación representativo de la capacidad instalada 
 
 ```python
 from scipy.optimize import linprog
+import matplotlib.pyplot as plt
+import numpy as np
 
 # --- 1. Definición del Problema (Datos de Julio 2025) ---
 
 plantas = ["Renovables", "Hidroeléctrica", "Térmica-Gas", "Térmica-Carbón", "Déficit"]
 demanda_total = 9804  # MW (Demanda horaria promedio)
-
-# Costos de generación (COP/kWh) - Definen el ORDEN DE MÉRITO
-# El costo de la Térmica-Gas se fija para ser el precio objetivo
-costos = [15, 90, 138.36, 250, 865.22]  # El último es el Precio de Escasez Superior
-
-# Límites de generación disponibles para este escenario (MW)
-limites = [
-    (0, 1000),   # Renovables
-    (0, 7804),   # Hidroeléctrica (con disponibilidad reducida)
-    (0, 3200),   # Térmica-Gas
-    (0, 2000),   # Térmica-Carbón
-    (0, None)    # Déficit (sin límite superior)
-]
+costos = [15, 90, 138.36, 250, 865.22]
+limites = [(0, 1000), (0, 7804), (0, 3200), (0, 2000), (0, None)]
 
 # --- 2. Formulación para linprog ---
 
@@ -93,25 +84,77 @@ if resultado.success:
     print("--- DESPACHO ECONÓMICO SIMULADO (Julio 2025) ---")
     print(f"Demanda a cubrir: {demanda_total} MW\n")
 
+    potencias_despachadas = resultado.x
+    plantas_despachadas_nombres = []
+    potencias_despachadas_valores = []
+
     print("Potencia despachada por generador (MW):")
     for i, planta in enumerate(plantas):
-        potencia = resultado.x[i]
+        potencia = potencias_despachadas[i]
         if potencia > 0.01:
             print(f"- {planta}: {potencia:,.2f} MW")
+            plantas_despachadas_nombres.append(planta)
+            potencias_despachadas_valores.append(potencia)
 
     print(f"\nCosto total del despacho: ${resultado.fun:,.2f} COP")
 
-    # El precio marginal es el costo del último generador despachado
     precio_marginal = 0
-    for i in range(len(plantas) -1, -1, -1):
-        if resultado.x[i] > 0.01:
+    for i in range(len(plantas) - 1, -1, -1):
+        if potencias_despachadas[i] > 0.01:
             precio_marginal = costos[i]
             break
 
     print(f"Precio Marginal de la Energía (Precio de Bolsa): {precio_marginal:,.2f} COP/kWh")
 
-    if resultado.x[-1] > 0:
+    if potencias_despachadas[-1] > 0:
         print("\n¡ALERTA! Se requirió despacho por déficit. El precio es el de escasez.")
+
+    # --- 5. Generación de Gráficas ---
+
+    # Gráfico 1: Barras de Generación Despachada
+    plt.figure(figsize=(10, 6))
+    colores = ['#2ca02c', '#1f77b4', '#ff7f0e', '#8c564b']
+    plt.bar(plantas_despachadas_nombres, potencias_despachadas_valores, color=colores)
+    plt.title('Generación Despachada por Tipo de Planta')
+    plt.ylabel('Potencia Despachada (MW)')
+    plt.xlabel('Tipo de Planta')
+    plt.grid(axis='y', linestyle='--', alpha=0.7)
+    plt.savefig('despacho_generacion.png')
+    print("\nGráfico de despacho guardado como 'despacho_generacion.png'")
+
+    # Gráfico 2: Curva de Oferta Agregada
+    oferta_ordenada = sorted([item for item in zip(costos, limites, plantas) if item[1][1] is not None])
+
+    x_coords = []
+    y_coords = []
+    capacidad_acumulada = 0
+
+    for costo, limite, _ in oferta_ordenada:
+        # Punto de inicio del escalón horizontal
+        x_coords.append(capacidad_acumulada)
+        y_coords.append(costo)
+
+        # Punto final del escalón horizontal
+        capacidad_acumulada += limite[1]
+        x_coords.append(capacidad_acumulada)
+        y_coords.append(costo)
+
+    plt.figure(figsize=(12, 7))
+    plt.plot(x_coords, y_coords, label='Curva de Oferta Agregada', color='blue', linewidth=2)
+
+    # Líneas de demanda y precio
+    plt.axvline(x=demanda_total, color='r', linestyle='--', linewidth=2, label=f'Demanda ({demanda_total:,.0f} MW)')
+    plt.axhline(y=precio_marginal, color='g', linestyle='--', linewidth=2, label=f'Precio Marginal ({precio_marginal:,.2f} COP/kWh)')
+
+    plt.title('Curva de Oferta Agregada y Determinación del Precio de Bolsa')
+    plt.xlabel('Capacidad Acumulada (MW)')
+    plt.ylabel('Costo Variable (COP/kWh)')
+    plt.legend()
+    plt.grid(True, which='both', linestyle='--', linewidth=0.5)
+    plt.ylim(bottom=0)
+    plt.xlim(left=0)
+    plt.savefig('curva_oferta_agregada.png')
+    print("Gráfico de curva de oferta guardado como 'curva_oferta_agregada.png'")
 
 else:
     print("No se encontró una solución óptima.")
@@ -126,3 +169,14 @@ Al ejecutar el código con este escenario:
 3.  Para cubrir los **9,804 MW** de demanda, el sistema necesita 1,000 MW adicionales (`9804 - 1000 - 7804 = 1000`).
 4.  Estos 1,000 MW son cubiertos por la siguiente planta en el orden de mérito: la **Térmica-Gas**.
 5.  Como la Térmica-Gas fue la última planta necesaria, su costo de **138.36 COP/kWh** fija el precio para todo el mercado en esa hora.
+
+#### 6. Visualización Gráfica de los Resultados
+
+El script ahora genera dos archivos de imagen para visualizar los resultados del despacho:
+
+*   **`despacho_generacion.png`**: Este gráfico de barras muestra la cantidad de potencia (en MW) que cada planta despachó. Es una forma clara y directa de ver qué generadores contribuyeron a satisfacer la demanda y en qué proporción.
+
+*   **`curva_oferta_agregada.png`**: Esta es la visualización más importante para entender la economía del sistema.
+    *   La **línea azul en escalera** representa la oferta total de energía, ordenada de más barata a más cara (orden de mérito). Cada escalón horizontal es un generador, donde su altura es el costo y su anchura es la capacidad.
+    *   La **línea roja vertical** representa la demanda total del sistema.
+    *   La **línea verde horizontal** muestra el precio marginal. Este precio se determina en el punto donde la línea de demanda cruza la curva de oferta. Todos los generadores a la izquierda de este punto son despachados y reciben este precio.
